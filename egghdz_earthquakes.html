@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Earthquake List in the Last 24 Hours</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+    <style type="text/css">
+      html, body { height:100%; margin:0; padding:0; } /* Makes the sample page fill the window. */
+      .container-full-height,
+      .container-full-height > .row { height:100%; }
+      .buttons > .btn { margin-right:15px; }
+      .buttons > .btn:last-of-type { margin-right:0; }
+      .gm-style .gm-style-iw strong { font-weight:700; }
+      #earthquake-map,
+      #right-sidebar { height:100%; } /* Always set the map height explicitly to define the size of the div element that contains the map. */
+      #right-sidebar { padding-top:15px; padding-bottom:15px; overflow-x:hidden; overflow-y:auto; }
+      #right-sidebar div.pre { font:12px/1.15 "Courier New",Courier,monospace; white-space:pre-wrap; word-wrap:break-word; }
+      #btn-back-to-map { display:none; }
+      #earthquake-details { margin-top:24px; }
+      @media screen and (max-width:991px) {
+        #right-sidebar { height:auto; }
+        #btn-back-to-map { display:inline-block; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container-fluid container-full-height">
+      <div class="row">
+        <div id="earthquake-map" class="col-md-8"></div>
+        <div id="right-sidebar" class="col-md-4">
+          <form id="form-timezone-locale">
+            <div class="form-group">
+              <label for="timezone-selector">Timezone:</label>
+              <select id="timezone-selector" class="form-control"></select>
+            </div>
+            <div class="form-group">
+              <label for="locale-selector">Locale:</label>
+              <select id="locale-selector" class="form-control"></select>
+            </div>
+            <div class="buttons">
+              <button id="btn-update-map" class="btn btn-primary">Update Map</button>
+              <button id="btn-back-to-map" class="btn btn-default">Back to Map</button>
+            </div>
+          </form>
+          <div id="earthquake-details"></div>
+        </div>
+      </div>
+      <!--<div class="clear-fix"></div>-->
+    </div>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <!--<script src="https://stackpath.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>-->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.22.1/moment-with-locales.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment-timezone/0.5.16/moment-timezone-with-data.min.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDnuy_q97dd3qGX_Dfdy0w1TSiBV7Dqn_8"></script>
+    <!--<script src="https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/markerclusterer.js"></script>-->
+    <script src="https://cdn.jsdelivr.net/npm/gmaps-marker-clusterer@1.2.2/src/markerclusterer.min.js"></script>
+    <script type="text/javascript">
+      var remoteURL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson';
+      var defaultMapZoom = 2;
+      var defaultMapCenter = {
+        lat: -28.024,
+        lng: 140.887
+      };
+      var currentInfoWindow = null;
+      var markerClusterer = null;
+      var map = new google.maps.Map(document.getElementById('earthquake-map'), {
+        zoom: defaultMapZoom,
+        center: defaultMapCenter,
+      });
+
+      var timezones = moment.tz.names();
+      var locales = moment.locales();
+      var currentTimezone = moment.tz.guess();
+      var currentLocale = 'en-au';
+
+      jQuery(function ($) {
+        $('#form-timezone-locale').on('submit', function (e) {
+          /* Development Note: This is the correct place to prevent the form being submitted instead of listening to the button click event. */
+          e.preventDefault();
+        });
+
+        // Initialises the Reset button.
+        $('#btn-update-map').on('click', function () {
+          $('#btn-back-to-map').trigger('click');
+
+          resetLocaleTimezone(); // This needs to be called before resetMap().
+
+          resetMap();
+
+          $('#earthquake-details').empty();
+        })
+                .trigger('click');
+
+        // Initialises the Back to Map button.
+        $('#btn-back-to-map').on('click', function () {
+          if ($(window).width() < 992) {
+            $('html, body').animate({
+              scrollTop: 0,
+            });
+          }
+        });
+      });
+
+      /**
+       * Resets/initialises the Timezone & Locale selectors and the related functionality.
+       */
+      function resetLocaleTimezone() {
+        var $ = jQuery;
+        var timezoneOptions = '';
+        var localeOptions = '';
+
+        currentTimezone = $('#timezone-selector').val() ? $('#timezone-selector').val() : currentTimezone;
+        for (var i = 0; i < timezones.length; i++) {
+          timezoneOptions += '<option value="' + timezones[i] + '"' + (timezones[i] === currentTimezone ? ' selected' : '') + '>' + timezones[i] + '</option>';
+        }
+        $('#timezone-selector').empty()
+                .html(timezoneOptions);
+
+        currentLocale = $('#locale-selector').val() ? $('#locale-selector').val() : currentLocale;
+        for (var i = 0; i < locales.length; i++) {
+          localeOptions += '<option value="' + locales[i] + '"' + (locales[i] === currentLocale ? ' selected' : '') + '>' + locales[i] + '</option>';
+        }
+        $('#locale-selector').empty()
+                .html(localeOptions);
+
+        /*
+         * Development Notes:
+         *   # moment-timezone related features (tz.setDefault() in the below case) must be called before locale().
+         *   # Even though moment.js acts as the default timezone was set to the returned value of tz.guess(), you'll still need to set the default timezone explicitly; otherwise, tz() will returned as 'undefined'.
+         */
+        moment.tz.setDefault(currentTimezone).locale(currentLocale); // Sets the default timezone & locale.
+      }
+
+      /**
+       * Gets the remote JSON data and resets/updates the map when ready.
+       */
+      function resetMap() {
+        if (currentInfoWindow) {
+          currentInfoWindow.close();
+        }
+
+        map.setZoom(defaultMapZoom);
+        map.setCenter(defaultMapCenter);
+
+        jQuery.ajax({
+          url: remoteURL,
+          dataType: 'json',
+        })
+                .fail(function () {
+                  logMessage('An error occurred. It is most likely that the server of USGS\'s Earthquake Hazards Program is not available at the moment.');
+                })
+                .done(function (data) {
+                  if (!isRawDataValid(data)) {
+                    logMessage('An error occurred. The returned data from the server of USGS\'s Earthquake Hazards Program is invalid.');
+                  } else {
+                    logMessage(data.features);
+
+                    var markers = getMarkers(data.features);
+
+                    markerClusterer = getMarkerCluster(markers);
+                  }
+                });
+      }
+
+      /**
+       * Checks if the raw data returned by the server of USGS\'s Earthquake Hazards Program is valid.
+       * @param {JSON} rawData The raw data returned by the server of USGS\'s Earthquake Hazards Program.
+       * @returns {boolean} Returns true if the raw data returned by the server of USGS\'s Earthquake Hazards Program is valid; or false otherwise.
+       */
+      function isRawDataValid(rawData) {
+        return typeof rawData.metadata.status !== 'undefined' && rawData.metadata.status === 200 && typeof rawData.features !== 'undefined' || rawData.features.constructor === Array;
+      }
+
+      /**
+       * Gets an array of Google Maps Markers from the raw location data.
+       * @param {JSON} rawLocationData The raw location data that were extracted from the returned data of the server of USGS\'s Earthquake Hazards Program.
+       * @returns {google.maps.Marker[]} An array of Google Maps Markers.
+       */
+      function getMarkers(rawLocationData) {
+        result = [];
+
+        if (rawLocationData && rawLocationData.constructor === Array && rawLocationData.length) {
+          for (i = 0; i < rawLocationData.length; i++) {
+            var location = rawLocationData[i];
+            var latLng = new google.maps.LatLng(location.geometry.coordinates[1], location.geometry.coordinates[0]);
+//            var locationTime = new Date(location.properties.time); // The raw value is the number of milliseconds since the epoch.
+            var locationTime = moment(location.properties.time); // The raw value is the number of milliseconds since the epoch.
+
+            var markerContent = '<h3 class="google-map-marker-title">' + location.properties.place + '</h3>';
+            markerContent += '<div class="google-map-marker-content">';
+//            markerContent += '<p><strong>Time:</strong> ' + locationTime.toLocaleString('en-AU') + '</p>';
+            markerContent += '<p><strong>Time:</strong> ' + locationTime.format('LLLL Z') + '</p>';
+            markerContent += '<p><strong>Latitude:</strong> ' + location.geometry.coordinates[1] + '<br><strong>Longitude:</strong> ' + location.geometry.coordinates[0] + '<br><strong>Depth:</strong> ' + location.geometry.coordinates[2] + ' km</p>';
+            markerContent += '<p><strong>Magnitude:</strong> ' + location.properties.mag + '</p>';
+            markerContent += '</div><\!-- .google-map-marker-content --\>';
+            markerContent += '<div class="google-map-marker-content-more"><p><a href="javascript:;" class="btn-show-details">Show Details</a></p></div>';
+
+            var infoWindow = new google.maps.InfoWindow({content: markerContent, maxWidth: 700});
+            var marker = new google.maps.Marker({
+              position: latLng,
+              map: map,
+              infoWindow: infoWindow,
+              rawData: location,
+            });
+
+            google.maps.event.addListener(marker, 'click', function () {
+              var thisMarker = this;
+
+              $('#earthquake-details').empty();
+
+              if (currentInfoWindow) {
+                currentInfoWindow.close();
+              }
+              this.infoWindow.open(map, this);
+              currentInfoWindow = this.infoWindow;
+
+              $('.google-map-marker-content-more .btn-show-details').on('click', function () {
+                logMessage(thisMarker.rawData);
+                $('#earthquake-details').html('<h4>Earthquake Detail:</h4><div class="pre">' + JSON.stringify(thisMarker.rawData, null, 2) + '</div>');
+
+                if ($(window).width() < 992) {
+                  $('html, body').animate({
+                    scrollTop: $('#right-sidebar').offset().top,
+                  });
+                }
+              });
+            });
+
+            result.push(marker);
+          }
+        }
+
+        return result;
+      }
+
+      /**
+       * Adds a marker clusterer to manage the markers.
+       * @@param {google.maps.Marker[]} markers An array of Google Maps Markers.
+       * @returns {MarkerClusterer} The object of MarkerClusterer.
+       */
+      function getMarkerCluster(markers) {
+        if (markerClusterer) {
+          markerClusterer.clearMarkers();
+          markerClusterer.addMarkers(markers);
+          return markerClusterer;
+        } else {
+          return new MarkerClusterer(map, markers, {
+//            imagePath: 'https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/m',
+            imagePath: 'https://cdn.jsdelivr.net/npm/gmaps-marker-clusterer@1.2.2/images/m',
+          });
+        }
+      }
+
+      /**
+       * Logs a message in the debug console if the browser supports it.
+       * @param {string} message The message needs to be logged.
+       */
+      function logMessage(message) {
+        if (typeof window.console !== 'undefined' && typeof window.console.log !== 'undefined') {
+          window.console.log(message);
+        }
+      }
+    </script>
+  </body>
+</html>
