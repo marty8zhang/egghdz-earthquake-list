@@ -1,7 +1,12 @@
 /**
  * @createdOn 13/05/2018, 1:35:12 PM
  * @author Marty Zhang <marty8zhang@gmail.com>
- * @version 0.9.201505140942
+ * @version 0.9.201805141650
+ */
+/*
+ * To-do:
+ *   - Formalise error messages.
+ *   - Feed selector.
  */
 var remoteURL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson';
 // Google Maps related variables.
@@ -18,6 +23,7 @@ var map = new google.maps.Map(document.getElementById('earthquake-map'), {
   scaleControl: true,
 });
 var geocoder = new google.maps.Geocoder();
+var markers = [];
 // Timezone & locale related variables.
 var timezones = moment.tz.names();
 var locales = moment.locales();
@@ -101,28 +107,39 @@ function resetLocation(callback) {
     currentLocationCircle.setMap(null); // Removes the circle that represents the selected radius.
   }
 
-  if ($('#my-location').val().trim() !== '') {
-    var tempLocation = $('#my-location').val().trim();
+  var tempLocation = $('#my-location').val().trim();
+  if (tempLocation) {
+    var tempCoordinate = tempLocation.split(tempLocation.includes(', ') ? ', ' : ',');
+    if (isValidCoordinate(tempCoordinate)) {
+      currentLocation = new google.maps.LatLng(tempCoordinate[0], tempCoordinate[1]);
+      $('#my-location').val(tempCoordinate[0] + ', ' + tempCoordinate[1]);
 
-    geocoder.geocode({
-      'address': tempLocation,
-    }, function (geocoderResult, geoStatus) {
-      if (geoStatus === google.maps.GeocoderStatus.OK) {
-        currentLocation = geocoderResult[0].geometry.location;
-        $('#my-location').val(geocoderResult[0].formatted_address);
+      resetPositionMarker();
 
-        resetPositionMarker();
-
-        if (callback) {
-          callback();
-        }
-      } else {
-        showLocationError({
-          code: 1001, // Makes up our own error code to comply with the method signature.
-          message: "Geocode was not successful for the following reason: " + geoStatus,
-        });
+      if (callback) {
+        callback();
       }
-    });
+    } else {
+      geocoder.geocode({
+        'address': tempLocation,
+      }, function (geocoderResult, geoStatus) {
+        if (geoStatus === google.maps.GeocoderStatus.OK) {
+          currentLocation = geocoderResult[0].geometry.location;
+          $('#my-location').val(geocoderResult[0].formatted_address);
+
+          resetPositionMarker();
+
+          if (callback) {
+            callback();
+          }
+        } else {
+          showLocationError({
+            code: 1001, // Makes up our own error code to comply with the method signature.
+            message: "Geocode was not successful for the following reason: " + geoStatus,
+          });
+        }
+      });
+    }
   } else { // Tries to auto detect the visitor's location.
     // Tries HTML5 geolocation.
     if (navigator.geolocation) {
@@ -149,11 +166,13 @@ function resetLocation(callback) {
  * Gets the remote JSON data and resets/updates the map when ready.
  */
 function resetMap() {
+  var $ = jQuery;
+
   if (currentInfoWindow) {
     currentInfoWindow.close();
   }
 
-  jQuery.ajax({
+  $.ajax({
     url: remoteURL,
     dataType: 'json',
   })
@@ -170,7 +189,7 @@ function resetMap() {
             } else {
 //              logMessage(data.features);
 
-              var markers = getMarkers(data.features);
+              markers = getMarkers(data.features);
 
               markerClusterer = getMarkerCluster(markers);
             }
@@ -181,20 +200,28 @@ function resetMap() {
  * Resets/initialises a marker for My Position on the map, draws a circle around it (if there is a selected radius), re-centers the map, and sets the proper zoom level for the map.
  */
 function resetPositionMarker() {
-  if (currentLocationMarker) {
-    currentLocationMarker.setPosition(currentLocation);
+  var markerOptions = {
+    position: currentLocation,
+    map: map,
+    infoWindow: null, // In case there is a previous binding.
+//    zIndex: 9999999999,
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      strokeWeight: 2,
+      strokeColor: '#FFF',
+      fillColor: '#00F',
+      fillOpacity: 1,
+      scale: 6,
+    },
+  };
+
+  if (currentLocationMarker) { // There is an existing marker for the 'My Location' field.
+    currentLocationMarker.setOptions(markerOptions);
   } else {
-    currentLocationMarker = new google.maps.Marker({
-      position: currentLocation,
-      map: map,
-      icon: {
-        url: 'https://chart.googleapis.com/chart?chst=d_map_pin_icon&chld=star|00F',
-        scaledSize: new google.maps.Size(26, 42)
-      },
-    });
+    currentLocationMarker = new google.maps.Marker(markerOptions);
   }
 
-  if (selectedRadius) {
+  if (selectedRadius) { // If there is a selected radius, draws a circle around the current location marker.
     var circleOptions = {
       map: map,
       center: currentLocation,
@@ -216,10 +243,27 @@ function resetPositionMarker() {
 }
 
 /**
+ * Checks if a given array represents a valid coordinate.
+ * @param {Number[]} coordinate An array [latitude, longitude] which represents a coordinate. Note: Its values must be in the number format.
+ * @return {Boolean} true if the given array represents a valid coordinate; or false otherwise.
+ */
+function isValidCoordinate(coordinate) {
+  var result = false;
+
+  if (coordinate && Array.isArray(coordinate) && coordinate.length == 2 && !isNaN(coordinate[0]) && coordinate[0] >= -90 && coordinate[0] <= 90 && !isNaN(coordinate[1]) && coordinate[1] >= -180 && coordinate[1] <= 180) {
+    result = true;
+  }
+
+  return result;
+}
+
+/**
  * Identifies the location-related error and displays the error message.
  * @param {type} error
  */
 function showLocationError(error) {
+  var $ = jQuery;
+
   switch (error.code) {
     case error.PERMISSION_DENIED:
       logMessage("User denied the request for Geolocation.");
@@ -241,7 +285,7 @@ function showLocationError(error) {
       logMessage(error.message);
   }
 
-  /* Development Note: It's not ideal to put the below code here. However, doing this can guarantee the code being executed whenever there is a location related error, which also represents an exit point of the whole map initialising process. */
+  /* Development Note: It might not be a good practise to put the below code here. However, doing this can guarantee the code being executed whenever there is a location related error, which also represents an exit point of the whole map initialising process. */
   $('#loader-wrapper').addClass('hidden');
 }
 
@@ -300,16 +344,19 @@ function isRawDataValid(rawData) {
  * @return {google.maps.Marker[]} An array of Google Maps Markers.
  */
 function getMarkers(rawLocationData) {
+  var $ = jQuery;
   var result = [];
 
   $('#number-of-results-in-range').empty();
 
   if (rawLocationData && rawLocationData.constructor === Array && rawLocationData.length) {
+    var j = 0; // The marker index of the returned array. This array will be strored in the global 'markers' variable.
+
     for (i = 0; i < rawLocationData.length; i++) {
       var location = rawLocationData[i];
       var latLng = new google.maps.LatLng(location.geometry.coordinates[1], location.geometry.coordinates[0]);
 
-      if (selectedRadius == '' || Math.ceil(google.maps.geometry.spherical.computeDistanceBetween(currentLocation, latLng) / 1000) <= selectedRadius) { // Not worldwide or within the selected radius. Development Note: computeDistanceBetween() returns a value in metres.
+      if (selectedRadius == '' || Math.ceil(google.maps.geometry.spherical.computeDistanceBetween(currentLocation, latLng) / 1000) <= selectedRadius) { // Worldwide or within the selected radius. Development Note: computeDistanceBetween() returns a value in metres.
 //            var locationTime = new Date(location.properties.time); // The raw value is the number of milliseconds since the epoch.
         var locationTime = moment(location.properties.time); // The raw value is the number of milliseconds since the epoch.
 
@@ -320,7 +367,7 @@ function getMarkers(rawLocationData) {
         markerContent += '<p><strong>Latitude:</strong> ' + location.geometry.coordinates[1] + '<br><strong>Longitude:</strong> ' + location.geometry.coordinates[0] + '<br><strong>Depth:</strong> ' + location.geometry.coordinates[2] + ' km</p>';
         markerContent += '<p><strong>Magnitude:</strong> ' + location.properties.mag + '</p>';
         markerContent += '</div><\!-- .google-map-marker-content --\>';
-        markerContent += '<div class="google-map-marker-content-more"><p class="buttons"><button class="btn-show-details btn btn-default">Show Details</button><button id="btn-set-as-my-location" class="btn btn-default">Set as My Location</button></p></div>';
+        markerContent += '<div class="google-map-marker-content-more"><p class="buttons"><button id="show-details-' + j + '" class="btn btn-default">Show Details</button><button id="set-as-my-location-' + j + '" class="btn btn-default" data-marker-index="' + j + '">Set as My Location</button></p></div>';
 
         var infoWindow = new google.maps.InfoWindow({
           content: markerContent,
@@ -333,32 +380,11 @@ function getMarkers(rawLocationData) {
           rawData: location,
         });
 
-        google.maps.event.addListener(marker, 'click', function () {
-          var thisMarker = this;
-
-          $('#earthquake-details').empty();
-
-          if (currentInfoWindow) {
-            currentInfoWindow.close();
-          }
-          this.infoWindow.open(map, this);
-          currentInfoWindow = this.infoWindow;
-
-          // To-do: Shouldn't do this inside the map event?
-          $('.google-map-marker-content-more .btn-show-details').on('click', function () {
-            $('#earthquake-details').html('<h4>Earthquake Detail:</h4><div class="pre">' + JSON.stringify(thisMarker.rawData, null, 2) + '</div>');
-
-            if ($(window).width() < 992) {
-              $('html, body').animate({
-                scrollTop: $('#right-sidebar').offset().top,
-              });
-            }
-          });
-        });
-
-        // To-do: #btn-set-as-my-location
+        google.maps.event.addListener(marker, 'click', getMarkerClickListener(marker, j));
 
         result.push(marker);
+
+        j++;
       }
     }
 
@@ -369,11 +395,51 @@ function getMarkers(rawLocationData) {
 }
 
 /**
+ * Gets the click listener of a given marker.
+ * Development Notes:
+ *   - This helper method helps with setting up the correct index number of the 'Show Details' & 'Set as My Location' buttons.
+ *   - The first parameter was introduced only for readability purposes. It can be replaced by the 'this' keyword within the scope of this method.
+ * @param {google.maps.Marker} thisMarker The given marker.
+ * @param {integer} markerIndex The index number of the given marker based on the remote data.
+ * @return {Function} The listener for the marker click event.
+ */
+function getMarkerClickListener(thisMarker, markerIndex) {
+  var $ = jQuery;
+
+  return function () {
+    $('#earthquake-details').empty();
+
+    if (currentInfoWindow) {
+      currentInfoWindow.close();
+    }
+    thisMarker.infoWindow.open(map, thisMarker);
+    currentInfoWindow = thisMarker.infoWindow;
+
+    // The 'Show Details' button.
+    $('.google-map-marker-content-more #show-details-' + markerIndex).on('click', function () {
+      $('#earthquake-details').html('<h4>Earthquake Detail:</h4><div class="pre">' + JSON.stringify(thisMarker.rawData, null, 2) + '</div>');
+
+      if ($(window).width() < 992) { // For small screens, the details container will be on the second 'page'.
+        $('html, body').animate({
+          scrollTop: $('#right-sidebar').offset().top,
+        });
+      }
+    });
+
+    // The 'Set as My Location' button.
+    $('.google-map-marker-content-more #set-as-my-location-' + markerIndex).on('click', function () {
+      $('#my-location').val(thisMarker.position.lat() + ', ' + thisMarker.position.lng());
+    });
+  }
+}
+
+/**
  * Adds a marker clusterer to manage the markers.
  * @param {google.maps.Marker[]} markers An array of Google Maps Markers.
  * @return {MarkerClusterer} The object of MarkerClusterer.
  */
 function getMarkerCluster(markers) {
+  var $ = jQuery;
   var result = null;
 
   if (markerClusterer) {
