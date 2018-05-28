@@ -5,13 +5,15 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://stackpath.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
-    <link rel="stylesheet" href="stylesheets/main.css">
+    <link rel="stylesheet" href="stylesheets/main-201805281700.min.css">
   </head>
   <body>
     <div class="container-fluid container-full-height">
       <div class="row">
-        <div id="earthquake-map" class="col-md-8"></div>
+        <div id="earthquake-map" class="col-md-8">
+        </div>
         <div id="right-sidebar" class="col-md-4">
+          <div id="messages"></div>
           <form id="form-timezone-locale">
             <div class="form-group">
               <label for="timezone-selector">Timezone:</label>
@@ -39,7 +41,17 @@
                 <option value="5000">Within 5000 km</option>
                 <option value="10000">Within 10000 km</option>
               </select>
-              <div id="number-of-results-in-range" class="text-info mt8"></div>
+              <select id="feed-selector" class="form-control mt8">
+                <option value="significant_hour.geojson">in the Past Hour (Significant)</option>
+                <option value="all_hour.geojson">in the Past Hour</option>
+                <option value="significant_day.geojson">in the Past Day (Significant)</option>
+                <option value="all_day.geojson" selected>in the Past Day</option>
+                <option value="significant_week.geojson">in the Past 7 Days (Significant)</option>
+                <option value="all_week.geojson">in the Past 7 Days</option>
+                <option value="significant_month.geojson">in the Past 30 Days (Significant)</option>
+                <option value="all_month.geojson">in the Past 30 Days</option>
+              </select>
+              <p class="mt8"><a href="https://earthquake.usgs.gov/earthquakes/browse/significant.php#sigdef" target="_blank">What makes an earthquake "significant"? (USGS Earthquake Hazards Program)</a></p>
             </div>
             <div class="buttons">
               <button id="btn-update-map" class="btn btn-primary">Update Map</button>
@@ -49,9 +61,12 @@
           <div id="earthquake-details"></div>
         </div>
       </div>
-      <!--<div class="clear-fix"></div>-->
+    </div>
+    <div id="scroll-down-button">
+      <a href="#right-sidebar"><span></span>Scroll</a>
     </div>
     <div id="loader-wrapper">
+      <div id="loader-message" class="text-center lead">Initialising...</div>
       <div class="cssload-wrap">
         <div class="cssload-circle"></div>
         <div class="cssload-circle"></div>
@@ -92,6 +107,6 @@
     <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDnuy_q97dd3qGX_Dfdy0w1TSiBV7Dqn_8&libraries=geometry"></script>
     <!--<script src="https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/markerclusterer.js"></script>-->
     <script src="https://cdn.jsdelivr.net/npm/gmaps-marker-clusterer@1.2.2/src/markerclusterer.min.js"></script>
-    <script src="scripts/main.js"></script>
+    <script src="scripts/main-201805281700.min.js"></script>
   </body>
 </html>

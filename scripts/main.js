@@ -1,14 +1,9 @@
 /**
  * @createdOn 13/05/2018, 1:35:12 PM
- * @author Marty Zhang <marty8zhang@gmail.com>
- * @version 0.9.201805141650
+ * @author Marty Zhang
+ * @version 1.0.201805170201
  */
-/*
- * To-do:
- *   - Formalise error messages.
- *   - Feed selector.
- */
-var remoteURL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson';
+var remoteURL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/';
 // Google Maps related variables.
 var defaultMapZoom = 2;
 var defaultMapCenter = {
@@ -16,12 +11,16 @@ var defaultMapCenter = {
   lng: 140.887
 };
 var currentInfoWindow = null;
+var infoWindowMaxWidth = 675;
 var markerClusterer = null;
-var map = new google.maps.Map(document.getElementById('earthquake-map'), {
+var mapOptions = {
   zoom: defaultMapZoom,
   center: defaultMapCenter,
   scaleControl: true,
-});
+  mapTypeControl: true,
+  fullscreenControl: true,
+};
+var map = new google.maps.Map(document.getElementById('earthquake-map'), mapOptions);
 var geocoder = new google.maps.Geocoder();
 var markers = [];
 // Timezone & locale related variables.
@@ -36,6 +35,38 @@ var selectedRadius = '';
 var currentLocationCircle = null;
 
 jQuery(function ($) {
+  $(window).on('resize', function () {
+    var infoWindowPadding = 20; // For one side, in pixels.
+
+    if ($(window).width() <= 568) {
+      mapOptions.mapTypeControl = false;
+      infoWindowPadding = 10;
+    } else {
+      mapOptions.mapTypeControl = true;
+    }
+    if ($(window).width() < 992) {
+      mapOptions.fullscreenControl = false;
+    } else {
+      mapOptions.fullscreenControl = true;
+    }
+
+    infoWindowMaxWidth = $('#earthquake-map').innerWidth() - infoWindowPadding * 2 - 53; // 53px is the width that Google Maps' Info Window interface adds in.
+
+    if (currentInfoWindow) {
+      currentInfoWindow.setOptions({
+        maxWidth: infoWindowMaxWidth,
+      });
+    }
+    map.setOptions(mapOptions);
+  }).trigger('resize');
+
+  $("#scroll-down-button a[href^='#']").on('click', function (e) {
+    e.preventDefault();
+    $('html, body').animate({
+      scrollTop: $($(this).attr('href')).offset().top
+    }, 500, 'linear');
+  });
+
   $('#form-timezone-locale').on('submit', function (e) {
     /* Development Note: This is the correct place, instead of listening to the button click event, to prevent the form from being submitted. */
     e.preventDefault();
@@ -44,14 +75,20 @@ jQuery(function ($) {
   // Initialises the Reset button.
   $('#btn-update-map').on('click', function () {
     $('#loader-wrapper').removeClass('hidden');
+    $('#loader-message').text('Initialising...');
+
+    $('#messages').empty();
 
     $('#btn-back-to-map').trigger('click');
 
-    resetLocaleTimezone(); // This needs to be called before resetMap().
+    resetTimezoneAndLocale(); // This needs to be called before resetMap().
 
     resetLocation(resetMap);
 
     $('#earthquake-details').empty();
+
+    /* Development Note: Because there are some asynchronous processes above, here isn't the right place to hide the loader. */
+//    hideLoader();
   })
           .trigger('click');
 
@@ -68,10 +105,12 @@ jQuery(function ($) {
 /**
  * Resets/initialises the Timezone & Locale selectors and the related functionality.
  */
-function resetLocaleTimezone() {
+function resetTimezoneAndLocale() {
   var $ = jQuery;
   var timezoneOptions = '';
   var localeOptions = '';
+
+  $('#loader-message').text('Setting up your timezone & locale...');
 
   currentTimezone = $('#timezone-selector').val() ? $('#timezone-selector').val() : currentTimezone;
   for (var i = 0; i < timezones.length; i++) {
@@ -103,6 +142,8 @@ function resetLocation(callback) {
   var $ = jQuery;
   selectedRadius = $('#radius-selector').val();
 
+  $('#loader-message').text('Determining your location...');
+
   if (currentLocationCircle) {
     currentLocationCircle.setMap(null); // Removes the circle that represents the selected radius.
   }
@@ -133,7 +174,7 @@ function resetLocation(callback) {
             callback();
           }
         } else {
-          showLocationError({
+          displayLocationError({
             code: 1001, // Makes up our own error code to comply with the method signature.
             message: "Geocode was not successful for the following reason: " + geoStatus,
           });
@@ -143,6 +184,12 @@ function resetLocation(callback) {
   } else { // Tries to auto detect the visitor's location.
     // Tries HTML5 geolocation.
     if (navigator.geolocation) {
+      var positionOptions = {
+        enableHighAccuracy: true,
+        timeout: 10000, // In milliseconds.
+        maximumAge: 300000, // The maximum age in milliseconds of a possible cached position that is acceptable to return.
+      };
+
       navigator.geolocation.getCurrentPosition(function (position) {
         currentLocation = new google.maps.LatLng(position.coords.latitude, position.coords.longitude);
         $('#my-location').val(position.coords.latitude + ', ' + position.coords.longitude);
@@ -152,9 +199,9 @@ function resetLocation(callback) {
         if (callback) {
           callback();
         }
-      }, showLocationError);
+      }, displayLocationError, positionOptions);
     } else {
-      showLocationError({
+      displayLocationError({
         code: 1002, // Makes up our own error code to comply with the method signature.
         message: "Your browser doesn't support location auto detection.",
       });
@@ -168,30 +215,48 @@ function resetLocation(callback) {
 function resetMap() {
   var $ = jQuery;
 
+  $('#loader-message').text('Retrieving the earthquake data...');
+
   if (currentInfoWindow) {
     currentInfoWindow.close();
   }
 
   $.ajax({
-    url: remoteURL,
+    url: remoteURL + $('#feed-selector').val(),
     dataType: 'json',
   })
           .fail(function () {
-            logMessage('An error occurred. It is most likely that the server of USGS\'s Earthquake Hazards Program is not available at the moment.');
+            displayMessages([
+              {
+                message: 'An error occurred. It is most likely that the server of USGS\'s Earthquake Hazards Program is not available at the moment.'
+              }
+            ]);
 
-            $('#loader-wrapper').addClass('hidden');
+            hideLoader();
           })
           .done(function (data) {
             if (!isRawDataValid(data)) {
-              logMessage('An error occurred. The returned data from the server of USGS\'s Earthquake Hazards Program is invalid.');
+              displayMessages([
+                {
+                  message: 'An error occurred. The returned data from the server of USGS\'s Earthquake Hazards Program is invalid.'
+                }
+              ]);
 
-              $('#loader-wrapper').addClass('hidden');
+              hideLoader();
             } else {
 //              logMessage(data.features);
 
               markers = getMarkers(data.features);
 
               markerClusterer = getMarkerCluster(markers);
+
+              var selectedFeed = $('#feed-selector > option:selected').text().toLowerCase();
+              displayMessages([
+                {
+                  message: markers.length + (selectedFeed.includes('significant') ? ' significant' : '') + " earthquake(s) detected in the selected area " + selectedFeed.replace(' (significant)', '') + ".",
+                  type: 'info'
+                }
+              ]);
             }
           });
 }
@@ -200,11 +265,12 @@ function resetMap() {
  * Resets/initialises a marker for My Position on the map, draws a circle around it (if there is a selected radius), re-centers the map, and sets the proper zoom level for the map.
  */
 function resetPositionMarker() {
+  var $ = jQuery;
   var markerOptions = {
     position: currentLocation,
     map: map,
     infoWindow: null, // In case there is a previous binding.
-//    zIndex: 9999999999,
+    zIndex: 2147483647, // Makes sure no other marker is on top of this one. Development Note: Marker Clusterer icons belong to a different google.maps.MapPanes object, which has a higher z-index value, hence the My Location marker might still be overlapped by one of those.
     icon: {
       path: google.maps.SymbolPath.CIRCLE,
       strokeWeight: 2,
@@ -214,6 +280,8 @@ function resetPositionMarker() {
       scale: 6,
     },
   };
+
+  $('#loader-message').text('Dropping your location marker...');
 
   if (currentLocationMarker) { // There is an existing marker for the 'My Location' field.
     currentLocationMarker.setOptions(markerOptions);
@@ -238,8 +306,9 @@ function resetPositionMarker() {
     }
   }
 
-  map.setCenter(currentLocation);
-  map.setZoom(determineMapZoom());
+  mapOptions.center = currentLocation;
+  mapOptions.zoom = determineMapZoom();
+  map.setOptions(mapOptions);
 }
 
 /**
@@ -259,34 +328,99 @@ function isValidCoordinate(coordinate) {
 
 /**
  * Identifies the location-related error and displays the error message.
- * @param {type} error
+ * @param {Object} error An object of the location-related error. Format: {code: ..., message: '...'}.
  */
-function showLocationError(error) {
-  var $ = jQuery;
+function displayLocationError(error) {
+  var message = 'Error: ';
 
   switch (error.code) {
     case error.PERMISSION_DENIED:
-      logMessage("User denied the request for Geolocation.");
+      message += "The Geolocation request can't be fulfilled through an insecure connection (e.g., non-HTTPS) or you denied the Geolocation request.";
       break;
 
     case error.POSITION_UNAVAILABLE:
-      logMessage("Location information is unavailable.");
+      message += "Location information is unavailable.";
       break;
 
     case error.TIMEOUT:
-      logMessage("The request to get user location timed out.");
+      message += "The request to get user location timed out.";
       break;
 
     case error.UNKNOWN_ERROR:
-      logMessage("An unknown error occurred.");
+      message += "An unknown error occurred.";
       break;
 
     default:
-      logMessage(error.message);
+      message += error.message;
   }
 
+  displayMessages([
+    {
+      message: message,
+    },
+  ]);
+
   /* Development Note: It might not be a good practise to put the below code here. However, doing this can guarantee the code being executed whenever there is a location related error, which also represents an exit point of the whole map initialising process. */
+  hideLoader();
+}
+
+/**
+ * Displays the given messages in the designated container.
+ * @param {Object} messages The messages array structured as [{message: '...', type: '...'}, ...]. Note: The acceptable types are: muted, primary, success, info, warning, & danger, which are referencing the corresponding Bootstrap class names. 'type' is optional and defaults to 'danger'.
+ */
+function displayMessages(messages) {
+  var $ = jQuery;
+  var messageList = '<ul>';
+
+  if (messages.length && messages[0].message.trim()) { // There should be at least one message.
+    for (var i = 0; i < messages.length; i++) {
+      var message = messages[i].message;
+      var messageType = messages[i].type;
+
+      if (message) {
+        switch (messageType) {
+          case 'muted':
+            messageType = 'text-muted';
+            break;
+
+          case 'primary':
+            messageType = 'text-primary';
+            break;
+
+          case 'success':
+            messageType = 'text-success';
+            break;
+
+          case 'info':
+            messageType = 'text-info';
+            break;
+
+          case 'warning':
+            messageType = 'text-warning';
+            break;
+
+          case 'danger':
+          default:
+            messageType = 'text-danger';
+        }
+
+        messageList += '<li class="' + messageType + '">' + message + '</li>';
+      }
+    }
+
+    messageList += '</ul>';
+    $('#messages').html(messageList);
+  }
+}
+
+/**
+ * Hides the loader layer and clears its content.
+ */
+function hideLoader() {
+  var $ = jQuery;
+
   $('#loader-wrapper').addClass('hidden');
+  $('#loader-message').text('');
 }
 
 /**
@@ -332,7 +466,7 @@ function determineMapZoom() {
 /**
  * Checks if the raw data returned by the server of USGS\'s Earthquake Hazards Program is valid.
  * @param {JSON} rawData The raw data returned by the server of USGS\'s Earthquake Hazards Program.
- * @return {boolean} Returns true if the raw data returned by the server of USGS\'s Earthquake Hazards Program is valid; or false otherwise.
+ * @return {Boolean} Returns true if the raw data returned by the server of USGS\'s Earthquake Hazards Program is valid; or false otherwise.
  */
 function isRawDataValid(rawData) {
   return typeof rawData.metadata.status !== 'undefined' && rawData.metadata.status === 200 && typeof rawData.features !== 'undefined' || rawData.features.constructor === Array;
@@ -347,7 +481,7 @@ function getMarkers(rawLocationData) {
   var $ = jQuery;
   var result = [];
 
-  $('#number-of-results-in-range').empty();
+  $('#loader-message').text('Dropping earthquake markers...');
 
   if (rawLocationData && rawLocationData.constructor === Array && rawLocationData.length) {
     var j = 0; // The marker index of the returned array. This array will be strored in the global 'markers' variable.
@@ -371,7 +505,7 @@ function getMarkers(rawLocationData) {
 
         var infoWindow = new google.maps.InfoWindow({
           content: markerContent,
-          maxWidth: 700,
+          maxWidth: 247,
         });
         var marker = new google.maps.Marker({
           position: latLng,
@@ -387,8 +521,6 @@ function getMarkers(rawLocationData) {
         j++;
       }
     }
-
-    $('#number-of-results-in-range').text(result.length + " earthquake(s) detected in the selected area within the last 24 hours.");
   }
 
   return result;
@@ -412,6 +544,9 @@ function getMarkerClickListener(thisMarker, markerIndex) {
     if (currentInfoWindow) {
       currentInfoWindow.close();
     }
+    thisMarker.infoWindow.setOptions({
+      maxWidth: infoWindowMaxWidth,
+    });
     thisMarker.infoWindow.open(map, thisMarker);
     currentInfoWindow = thisMarker.infoWindow;
 
@@ -421,7 +556,7 @@ function getMarkerClickListener(thisMarker, markerIndex) {
 
       if ($(window).width() < 992) { // For small screens, the details container will be on the second 'page'.
         $('html, body').animate({
-          scrollTop: $('#right-sidebar').offset().top,
+          scrollTop: $('#earthquake-details').offset().top,
         });
       }
     });
@@ -429,6 +564,12 @@ function getMarkerClickListener(thisMarker, markerIndex) {
     // The 'Set as My Location' button.
     $('.google-map-marker-content-more #set-as-my-location-' + markerIndex).on('click', function () {
       $('#my-location').val(thisMarker.position.lat() + ', ' + thisMarker.position.lng());
+
+      if ($(window).width() < 992) { // For small screens, the form will be on the second 'page'.
+        $('html, body').animate({
+          scrollTop: $('#form-timezone-locale').offset().top,
+        });
+      }
     });
   }
 }
@@ -442,6 +583,8 @@ function getMarkerCluster(markers) {
   var $ = jQuery;
   var result = null;
 
+  $('#loader-message').text('Grouping earthquake markers...');
+
   if (markerClusterer) {
     markerClusterer.clearMarkers();
     markerClusterer.addMarkers(markers);
@@ -453,7 +596,7 @@ function getMarkerCluster(markers) {
     });
   }
 
-  $('#loader-wrapper').addClass('hidden');
+  hideLoader();
 
   return result;
 }
