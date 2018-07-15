@@ -1,6 +1,8 @@
 # Egghdz Earthquake List
 A simple web application utilising Bootstrap, jQuery, Google Maps API V3 and MarkerClusterer to pull the data from the USGS Earthquake Hazards Program website and show them on Google Maps.
 
+__Note:__ If you landed here from an outdated link, please also have a look at [Egghdz Earthquake List V2](https://github.com/marty8zhang/egghdz-earthquake-list-v2), which is built with React now.
+
 ## Demo
 https://demos.egghdz.org/earthquake-list/
 

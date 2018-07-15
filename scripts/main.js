@@ -1,7 +1,7 @@
 /**
  * @createdOn 13/05/2018, 1:35:12 PM
  * @author Marty Zhang
- * @version 1.0.201805170201
+ * @version 1.0.201807160144
  */
 var remoteURL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/';
 // Google Maps related variables.
@@ -164,7 +164,7 @@ function resetLocation(callback) {
       geocoder.geocode({
         'address': tempLocation,
       }, function (geocoderResult, geoStatus) {
-        if (geoStatus === google.maps.GeocoderStatus.OK) {
+        if (geoStatus === 'OK') {
           currentLocation = geocoderResult[0].geometry.location;
           $('#my-location').val(geocoderResult[0].formatted_address);
 
